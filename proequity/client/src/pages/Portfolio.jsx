@@ -4,12 +4,15 @@ import GlassCard from '../components/shared/GlassCard';
 import { AllocationChart, PerformanceChart } from '../components/portfolio/PortfolioCharts';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../hooks/useAuth';
+import AddStockModal from '../components/shared/AddStockModal';
 
 const Portfolio = ({ setAuthOpen }) => {
   const { user } = useAuth();
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [holdings, setHoldings] = useState([]);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editData, setEditData] = useState(null);
   
   // Historical data states
   const [historyPeriod, setHistoryPeriod] = useState('1M'); // '1D', '1M', '6M', '1Y'
@@ -74,6 +77,29 @@ const Portfolio = ({ setAuthOpen }) => {
       setHoldings(prev => prev.filter(h => h.id !== symbol));
     } else {
       alert("Error removing stock: " + error.message);
+    }
+  };
+
+  const handleAddSuccess = async (newRecord, isEdit) => {
+    try {
+      const { fetchStockQuote } = require('../services/api');
+      const quote = await fetchStockQuote(newRecord.symbol);
+      const updatedRecord = quote && quote.price 
+        ? { id: newRecord.symbol, name: newRecord.name, qty: newRecord.quantity, avgCost: newRecord.average_cost, tag: 'Hold', ltp: quote.price, prevClose: quote.previousClose }
+        : { id: newRecord.symbol, name: newRecord.name, qty: newRecord.quantity, avgCost: newRecord.average_cost, tag: 'Hold', ltp: newRecord.average_cost, prevClose: newRecord.average_cost };
+      
+      if (isEdit) {
+        setHoldings(prev => prev.map(h => h.id === newRecord.symbol ? updatedRecord : h));
+      } else {
+        setHoldings(prev => [...prev, updatedRecord]);
+      }
+    } catch {
+      const fallbackRecord = { id: newRecord.symbol, name: newRecord.name, qty: newRecord.quantity, avgCost: newRecord.average_cost, tag: 'Hold', ltp: newRecord.average_cost, prevClose: newRecord.average_cost };
+      if (isEdit) {
+        setHoldings(prev => prev.map(h => h.id === newRecord.symbol ? fallbackRecord : h));
+      } else {
+        setHoldings(prev => [...prev, fallbackRecord]);
+      }
     }
   };
 
@@ -240,7 +266,11 @@ const Portfolio = ({ setAuthOpen }) => {
               </div>
               <button 
                 className="btn btn-glow" 
-                onClick={() => user ? alert("Add Stock Flow here") : setAuthOpen(true)}
+                onClick={() => {
+                  if (!user) { setAuthOpen(true); return; }
+                  setEditData(null);
+                  setIsAddModalOpen(true);
+                }}
                 style={{ fontSize: '13px', padding: '6px 14px' }}
               >
                 + Add Stock
@@ -315,13 +345,22 @@ const Portfolio = ({ setAuthOpen }) => {
                       <span className={`tag tag-${h.tag.toLowerCase().replace(' ', '-')}`}>{h.tag}</span>
                     </td>
                     <td>
-                      <button 
-                        onClick={() => handleRemove(h.id)} 
-                        style={{ background: 'transparent', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '18px' }}
-                        title="Remove Stock"
-                      >
-                        ×
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button 
+                          onClick={() => { setEditData(h); setIsAddModalOpen(true); }}
+                          style={{ background: 'transparent', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', fontSize: '16px' }}
+                          title="Edit Stock"
+                        >
+                          ✎
+                        </button>
+                        <button 
+                          onClick={() => handleRemove(h.id)} 
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '18px' }}
+                          title="Remove Stock"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </td>
                   </motion.tr>
                 ))}
@@ -341,6 +380,13 @@ const Portfolio = ({ setAuthOpen }) => {
         </GlassCard>
       </motion.div>
 
+      <AddStockModal 
+        isOpen={isAddModalOpen} 
+        onClose={() => setIsAddModalOpen(false)} 
+        user={user} 
+        onAddSuccess={handleAddSuccess} 
+        editData={editData}
+      />
     </motion.div>
   );
 };
