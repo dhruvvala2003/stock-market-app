@@ -1,0 +1,6 @@
+API KEYS.txt
+.env
+.env.local
+node_modules/
+dist/
+user_pasted_clipboard*
