@@ -1494,16 +1494,7 @@
     font-size: 15px;
   }
 
-  .collapse-header::after {
-    content: '▼';
-    font-size: 10px;
-    color: var(--text-tertiary);
-    transition: transform 0.3s ease;
-  }
-
-  .collapse-header.collapsed::after {
-    transform: rotate(-90deg);
-  }
+  /* collapse-header pseudo element removed because we use explicit arrows in React */
 
   .collapse-body {
     max-height: 2000px;
