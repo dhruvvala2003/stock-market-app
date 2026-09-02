@@ -1,153 +1,51 @@
 const express = require('express');
-const YahooFinance = require('yahoo-finance2').default;
-const yahooFinance = new YahooFinance();
+const { getMarketDataProvider, DataUnavailableError } = require('../providers/marketDataProvider');
+const { calculateIndicators } = require('../lib/technicals');
+
 const router = express.Router();
-
-const CACHE_TTL = 30000; // 30 seconds
 const cache = new Map();
+const CACHE_TTL = 60_000;
+const supportedSymbol = symbol => /^[A-Z0-9.^_-]{1,32}$/i.test(symbol);
 
-// Helper to ensure Indian symbols end in .NS
-const formatSymbol = (sym) => {
-  // If it's an index like ^NSEI, leave it
-  if (sym.startsWith('^')) return sym;
-  
-  if (!sym.includes('.')) {
-    return `${sym}.NS`; // Default to NSE
-  }
-  return sym;
+const sendError = (res, error) => {
+  const status = error instanceof DataUnavailableError ? 503 : 502;
+  res.status(status).json({ error: error.message || 'Market data request failed.', code: error.code || 'MARKET_DATA_ERROR' });
 };
+
+async function cached(key, loader) {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.createdAt < CACHE_TTL) return hit.value;
+  const value = await loader(); cache.set(key, { createdAt: Date.now(), value }); return value;
+}
 
 router.get('/quote/:symbol', async (req, res) => {
   try {
-    const rawSymbol = req.params.symbol;
-    const symbol = formatSymbol(rawSymbol);
-    const cacheKey = `quote_${symbol}`;
-    
-    if (cache.has(cacheKey) && (Date.now() - cache.get(cacheKey).time < CACHE_TTL)) {
-      return res.json(cache.get(cacheKey).data);
-    }
-    
-    const quote = await yahooFinance.quote(symbol);
-    
-    const formattedData = {
-      symbol: quote.symbol,
-      name: quote.shortName || quote.longName,
-      price: quote.regularMarketPrice,
-      change: quote.regularMarketChange,
-      changePercent: quote.regularMarketChangePercent,
-      open: quote.regularMarketOpen,
-      high: quote.regularMarketDayHigh,
-      low: quote.regularMarketDayLow,
-      previousClose: quote.regularMarketPreviousClose,
-      volume: quote.regularMarketVolume,
-      marketCap: quote.marketCap,
-      pe: quote.trailingPE,
-      eps: quote.epsTrailingTwelveMonths,
-      fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh,
-      fiftyTwoWeekLow: quote.fiftyTwoWeekLow
-    };
-
-    cache.set(cacheKey, { time: Date.now(), data: formattedData });
-    res.json(formattedData);
-  } catch (error) {
-    console.error(`Quote error for ${req.params.symbol}:`, error.message);
-    res.status(500).json({ error: 'Failed to fetch quote' });
-  }
+    const symbol = req.params.symbol.toUpperCase();
+    if (!supportedSymbol(symbol)) return res.status(400).json({ error: 'Invalid instrument symbol.' });
+    res.json(await cached(`quote:${symbol}`, () => getMarketDataProvider().getQuote(symbol)));
+  } catch (error) { sendError(res, error); }
 });
 
 router.get('/candles/:symbol', async (req, res) => {
   try {
-    const rawSymbol = req.params.symbol;
-    const symbol = formatSymbol(rawSymbol);
-    const { period1, period2, interval = '1d' } = req.query;
-    
-    // Default to last 30 days if not provided
-    const to = period2 ? new Date(parseInt(period2) * 1000) : new Date();
-    const from = period1 ? new Date(parseInt(period1) * 1000) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-
-    const queryOptions = { period1: from, period2: to, interval };
-    const result = await yahooFinance.historical(symbol, queryOptions);
-    
-    res.json(result);
-  } catch (error) {
-    console.error('Candles error:', error.message);
-    res.status(500).json({ error: 'Failed to fetch candles' });
-  }
+    const symbol = req.params.symbol.toUpperCase();
+    if (!supportedSymbol(symbol)) return res.status(400).json({ error: 'Invalid instrument symbol.' });
+    const candles = await cached(`candles:${symbol}`, () => getMarketDataProvider().getOHLCV(symbol));
+    res.json({ candles, provenance: { source: 'Alpha Vantage', sourceTier: 'LICENSED', classification: 'FACT', sourceUrl: 'https://www.alphavantage.co/documentation/', lastVerified: new Date().toISOString(), adjusted: false } });
+  } catch (error) { sendError(res, error); }
 });
 
-router.get('/profile/:symbol', async (req, res) => {
+router.get('/indicators/:symbol', async (req, res) => {
   try {
-    const symbol = formatSymbol(req.params.symbol);
-    const cacheKey = `profile_${symbol}`;
-
-    if (cache.has(cacheKey) && (Date.now() - cache.get(cacheKey).time < CACHE_TTL)) {
-      return res.json(cache.get(cacheKey).data);
-    }
-
-    // Use quoteSummary for profile info
-    const result = await yahooFinance.quoteSummary(symbol, { modules: ['assetProfile', 'financialData', 'defaultKeyStatistics'] });
-    
-    const formattedData = {
-      sector: result.assetProfile?.sector,
-      industry: result.assetProfile?.industry,
-      description: result.assetProfile?.longBusinessSummary,
-      website: result.assetProfile?.website,
-      marketCap: result.defaultKeyStatistics?.enterpriseValue,
-      peRatio: result.defaultKeyStatistics?.forwardPE,
-      dividendYield: result.defaultKeyStatistics?.yield,
-      beta: result.defaultKeyStatistics?.beta,
-      profitMargins: result.financialData?.profitMargins,
-      returnOnEquity: result.financialData?.returnOnEquity
-    };
-
-    cache.set(cacheKey, { time: Date.now(), data: formattedData });
-    res.json(formattedData);
-  } catch (error) {
-    console.error('Profile error:', error.message);
-    res.status(500).json({ error: 'Failed to fetch company profile' });
-  }
+    const symbol = req.params.symbol.toUpperCase();
+    const candles = await cached(`candles:${symbol}`, () => getMarketDataProvider().getOHLCV(symbol));
+    const indicators = calculateIndicators(candles);
+    res.json({ symbol, indicators, provenance: { source: 'Calculated from licensed OHLCV', sourceTier: 'DERIVED', classification: 'FACT', methodology: 'Wilder RSI(14), EMA MACD(12,26,9), SMA and ATR from provider candles', sourceUrl: 'https://www.alphavantage.co/documentation/', lastVerified: new Date().toISOString() } });
+  } catch (error) { sendError(res, error); }
 });
 
-// Mocked technicals since Yahoo Finance doesn't return computed indicators directly without a calculation library
-router.get('/indicators/:type/:symbol', async (req, res) => {
-  try {
-    const { type, symbol } = req.params;
-    
-    // Return simulated realistic data based on recent price trends
-    const quote = await yahooFinance.quote(formatSymbol(symbol));
-    const isUp = quote.regularMarketChangePercent > 0;
-    
-    const data = {
-      symbol,
-      indicator: type.toUpperCase(),
-      value: type.toUpperCase() === 'RSI' ? (isUp ? 65.4 : 35.2) : quote.regularMarketPrice * (isUp ? 0.98 : 1.02),
-      signal: isUp ? 'BULLISH' : 'BEARISH'
-    };
-    
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch indicator' });
-  }
-});
-
-router.get('/search/:query', async (req, res) => {
-  try {
-    const query = req.params.query;
-    const result = await yahooFinance.search(query);
-    
-    // Filter to top 6 suggestions
-    const suggestions = result.quotes.slice(0, 6).map(q => ({
-      symbol: q.symbol,
-      name: q.shortname || q.longname,
-      exchange: q.exchange,
-      typeDisp: q.quoteType
-    }));
-    
-    res.json(suggestions);
-  } catch (error) {
-    console.error('Search error:', error.message);
-    res.status(500).json({ error: 'Failed to search stocks' });
-  }
-});
+router.get('/search/:query', (req, res) => res.status(503).json({ error: 'Security search requires an approved reference-data provider and is not configured.', code: 'PROVIDER_NOT_CONFIGURED' }));
+router.get('/profile/:symbol', (req, res) => res.status(503).json({ error: 'Company profile data is unavailable until a validated filing/reference-data connector is configured.', code: 'PROVIDER_NOT_CONFIGURED' }));
+router.get('/recommendation/:symbol', (req, res) => res.status(503).json({ error: 'Consensus data unavailable: no licensed consensus provider is configured.', code: 'CONSENSUS_UNAVAILABLE' }));
 
 module.exports = router;

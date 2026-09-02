@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Header from './components/layout/Header';
 import TickerTape from './components/layout/TickerTape';
 import NavBar from './components/layout/NavBar';
@@ -14,13 +14,19 @@ import AdvancedTools from './pages/AdvancedTools';
 import IPO from './pages/IPO';
 import AuthModal from './components/shared/AuthModal';
 import { useAuth } from './hooks/useAuth';
+import { fetchMarketStatus } from './services/api';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [searchInput, setSearchInput] = useState('');
   const [selectedSymbol, setSelectedSymbol] = useState('RELIANCE.NS');
   const [authOpen, setAuthOpen] = useState(false);
+  const [marketStatus, setMarketStatus] = useState('Market data loading…');
   const { user, logout } = useAuth();
+
+  useEffect(() => {
+    fetchMarketStatus().then(status => setMarketStatus(status.status === 'unavailable' ? 'Market data unavailable' : `NSE ${status.status} · ${status.latency}`)).catch(() => setMarketStatus('Market data unavailable'));
+  }, []);
 
   const renderContent = () => {
     switch(activeTab) {
@@ -44,7 +50,7 @@ function App() {
       <Header 
         searchInput={searchInput} 
         setSearchInput={setSearchInput} 
-        marketStatus="NSE Open" 
+        marketStatus={marketStatus}
         setSelectedSymbol={setSelectedSymbol}
         setActiveTab={setActiveTab}
         user={user}

@@ -1,18 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { fetchMarketIndices } from '../../services/api';
 
-const TickerTape = () => {
-  return (
-    <div className="ticker-tape glass">
-      <div className="ticker-item"><span className="ticker-name">NIFTY 50</span> <span className="ticker-value">24,502.15</span> <span className="ticker-change ticker-up">▲ +178.30 (+0.73%)</span></div>
-      <div className="ticker-item"><span className="ticker-name">SENSEX</span> <span className="ticker-value">80,436.80</span> <span className="ticker-change ticker-up">▲ +542.10 (+0.68%)</span></div>
-      <div className="ticker-item"><span className="ticker-name">NIFTY BANK</span> <span className="ticker-value">52,180.45</span> <span className="ticker-change ticker-up">▲ +312.50 (+0.60%)</span></div>
-      <div className="ticker-item"><span className="ticker-name">NIFTY IT</span> <span className="ticker-value">38,920.30</span> <span className="ticker-change ticker-down">▼ -145.20 (-0.37%)</span></div>
-      <div className="ticker-item"><span className="ticker-name">USD/INR</span> <span className="ticker-value">83.52</span> <span className="ticker-change ticker-down">▼ -0.08</span></div>
-      <div className="ticker-item"><span className="ticker-name">GOLD</span> <span className="ticker-value">₹72,850</span> <span className="ticker-change ticker-up">▲ +420</span></div>
-      <div className="ticker-item"><span className="ticker-name">CRUDE</span> <span className="ticker-value">$82.45</span> <span className="ticker-change ticker-up">▲ +1.20</span></div>
-      <div className="ticker-item"><span className="ticker-name">BTC/USD</span> <span className="ticker-value">$67,420</span> <span className="ticker-change ticker-up">▲ +1,240</span></div>
-    </div>
-  );
-};
-
-export default TickerTape;
+export default function TickerTape() {
+  const [quotes, setQuotes] = useState([]); const [error, setError] = useState('');
+  useEffect(() => { fetchMarketIndices().then(setQuotes).catch(err => setError(err.message)); }, []);
+  return <div className="ticker-tape glass">{quotes.length ? quotes.map(q => <div className="ticker-item" key={q.symbol}><span className="ticker-name">{q.symbol}</span> <span className="ticker-value">{Number(q.price).toLocaleString('en-IN')}</span> <span className={`ticker-change ${q.change >= 0 ? 'ticker-up' : 'ticker-down'}`}>{q.change >= 0 ? '▲' : '▼'} {Number(q.change).toFixed(2)} ({(Number(q.changePercent) * 100).toFixed(2)}%)</span></div>) : <div className="ticker-item"><span className="ticker-name">MARKET DATA</span> <span className="ticker-value">{error ? 'Unavailable' : 'Loading…'}</span></div>}</div>;
+}
