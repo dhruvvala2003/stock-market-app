@@ -1,6 +1,7 @@
 const axios = require('axios');
 
 const AV_BASE_URL = 'https://www.alphavantage.co/query';
+let nextRequestAt = 0;
 
 class DataUnavailableError extends Error {
   constructor(message, code = 'DATA_UNAVAILABLE') {
@@ -34,6 +35,11 @@ class AlphaVantageMarketProvider {
     if (!approvedAlphaVantage()) {
       throw new DataUnavailableError('No approved market-data provider is configured. Set MARKET_DATA_PROVIDER, MARKET_DATA_PUBLIC_DISPLAY_APPROVED, and the provider key only after licensing review.', 'PROVIDER_NOT_CONFIGURED');
     }
+    // Alpha Vantage free keys permit one request per second. Space requests even
+    // when two frontend calls arrive at the same time (for example chart + RSI).
+    const waitMs = Math.max(0, nextRequestAt - Date.now());
+    nextRequestAt = Math.max(Date.now(), nextRequestAt) + 1_100;
+    if (waitMs) await new Promise(resolve => setTimeout(resolve, waitMs));
     const response = await axios.get(AV_BASE_URL, { params: { ...params, apikey: process.env.ALPHA_VANTAGE_KEY }, timeout: 10000 });
     if (response.data?.Note || response.data?.Information || response.data?.['Error Message']) {
       throw new DataUnavailableError(response.data.Note || response.data.Information || response.data['Error Message'], 'PROVIDER_RESPONSE');

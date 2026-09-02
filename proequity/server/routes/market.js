@@ -7,13 +7,8 @@ router.get('/status', (req, res) => {
   res.json({ market: 'NSE', status: configured ? 'delayed' : 'unavailable', provider: configured ? 'Alpha Vantage' : null, latency: configured ? 'DELAYED' : null, timestamp: new Date().toISOString(), sourceMode: 'STRICT' });
 });
 
-router.get('/indices', async (req, res) => {
-  try {
-    const provider = getMarketDataProvider();
-    const symbols = ['NIFTY', 'NIFTYBANK', 'SENSEX'];
-    res.json(await Promise.all(symbols.map(symbol => provider.getQuote(symbol))));
-  } catch (error) {
-    res.status(error instanceof DataUnavailableError ? 503 : 502).json({ error: error.message, code: error.code || 'MARKET_DATA_ERROR' });
-  }
-});
+router.get('/indices', (req, res) => res.status(503).json({
+  error: 'Indian index coverage is unavailable from the configured Alpha Vantage adapter. NIFTY, NIFTYBANK and SENSEX must not be requested as equity symbols.',
+  code: 'INDEX_COVERAGE_UNAVAILABLE',
+}));
 module.exports = router;

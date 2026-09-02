@@ -15,7 +15,11 @@ const sendError = (res, error) => {
 async function cached(key, loader) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.createdAt < CACHE_TTL) return hit.value;
-  const value = await loader(); cache.set(key, { createdAt: Date.now(), value }); return value;
+  // Store the promise immediately so simultaneous chart/indicator requests do
+  // not spend two provider calls for the same candles.
+  const value = Promise.resolve().then(loader);
+  cache.set(key, { createdAt: Date.now(), value });
+  try { return await value; } catch (error) { cache.delete(key); throw error; }
 }
 
 router.get('/quote/:symbol', async (req, res) => {

@@ -19,7 +19,7 @@ import { fetchMarketStatus } from './services/api';
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [searchInput, setSearchInput] = useState('');
-  const [selectedSymbol, setSelectedSymbol] = useState('RELIANCE.NS');
+  const [selectedSymbol, setSelectedSymbol] = useState('RELIANCE.BSE');
   const [authOpen, setAuthOpen] = useState(false);
   const [marketStatus, setMarketStatus] = useState('Market data loading…');
   const { user, logout } = useAuth();
